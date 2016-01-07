@@ -35,7 +35,7 @@ define([
 
     var style = new Style();
     var table = new Table();
-    var typing = new Typing();
+    var typing = new Typing(context);
     var bullet = new Bullet();
     var history = new History($editable);
 
