@@ -6,7 +6,7 @@
  * Copyright 2013-2015 Alan Hong. and other contributors
  * summernote may be freely distributed under the MIT license./
  *
- * Date: 2016-02-18T16:03Z
+ * Date: 2016-07-12T12:14Z
  */
 (function (factory) {
   /* global define */
@@ -1684,6 +1684,7 @@
       return function (event) {
         event.preventDefault();
         self.invoke(namespace, value || $(event.target).closest('[data-value]').data('value'));
+        self.invoke('buttons.updateCurrentStyle');
       };
     };
 
