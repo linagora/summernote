@@ -187,6 +187,7 @@ define([
       return function (event) {
         event.preventDefault();
         self.invoke(namespace, value || $(event.target).closest('[data-value]').data('value'));
+        self.invoke('buttons.updateCurrentStyle');
       };
     };
 
