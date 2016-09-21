@@ -6,7 +6,7 @@
  * Copyright 2013-2016 Alan Hong. and other contributors
  * summernote may be freely distributed under the MIT license./
  *
- * Date: 2016-09-15T10:38Z
+ * Date: 2016-09-21T08:18Z
  */
 (function (factory) {
   /* global define */
@@ -1203,11 +1203,17 @@
      * @param {Object} [options]
      * @param {Boolean} [options.isSkipPaddingBlankHTML] - default: false
      * @param {Boolean} [options.isNotSplitEdgePoint] - default: false
+     * @param {Boolean} [options.isDiscardEmptySplits] - default: false, implies: isSkipPaddingBlankHTML
      * @return {Node} right node of boundaryPoint
      */
     var splitNode = function (point, options) {
       var isSkipPaddingBlankHTML = options && options.isSkipPaddingBlankHTML;
       var isNotSplitEdgePoint = options && options.isNotSplitEdgePoint;
+      var isDiscardEmptySplits = options && options.isDiscardEmptySplits;
+
+      if (isDiscardEmptySplits) {
+        isSkipPaddingBlankHTML = true;
+      }
 
       // edge case
       if (isEdgePoint(point) && (isText(point.node) || isNotSplitEdgePoint)) {
@@ -1229,6 +1235,18 @@
         if (!isSkipPaddingBlankHTML) {
           paddingBlankHTML(point.node);
           paddingBlankHTML(clone);
+        }
+
+        if (isDiscardEmptySplits) {
+          if (isEmpty(point.node)) {
+            remove(point.node);
+          }
+
+          if (isEmpty(clone)) {
+            remove(clone);
+
+            return point.node.nextSibling;
+          }
         }
 
         return clone;
@@ -3637,10 +3655,10 @@
    * Typing
    *
    */
-  var Typing = function () {
+  var Typing = function (context) {
 
-    // a Bullet instance to toggle lists off
-    var bullet = new Bullet();
+    var bullet = new Bullet(), // a Bullet instance to toggle lists off
+        options = $.extend({ blockquoteBreakingLevel: 2 }, context && context.options); // Break all levels by default
 
     /**
      * insert tab
@@ -3659,9 +3677,12 @@
 
     /**
      * insert paragraph
+     *
+     * @param {jQuery} editable
+     * @param {WrappedRange} rng Can be used in unit tests to "mock" the range
      */
-    this.insertParagraph = function (editable) {
-      var rng = range.create(editable);
+    this.insertParagraph = function (editable, rng) {
+      rng = rng || range.create(editable);
 
       // deleteContents on range.
       rng = rng.deleteContents();
@@ -3669,10 +3690,10 @@
       // Wrap range if it needs to be wrapped by paragraph
       rng = rng.wrapBodyInlineWithPara();
 
-      // finding paragraph
-      var splitRoot = dom.ancestor(rng.sc, dom.isPara);
+      var splitRoot = dom.ancestor(rng.sc, dom.isPara), // finding paragraph
+          nextPara,
+          blockquoteBreakingLevel = options.blockquoteBreakingLevel;
 
-      var nextPara;
       // on paragraph: split paragraph
       if (splitRoot) {
         // if it is an empty line with li
@@ -3680,25 +3701,47 @@
           // toogle UL/OL and escape
           bullet.toggleList(splitRoot.parentNode.nodeName);
           return;
-        // if it is an empty line with para on blockquote
-        } else if (dom.isEmpty(splitRoot) && dom.isPara(splitRoot) && dom.isBlockquote(splitRoot.parentNode)) {
-          // escape blockquote
-          dom.insertAfter(splitRoot, splitRoot.parentNode);
-          nextPara = splitRoot;
-        // if new line has content (not a line break)
         } else {
-          nextPara = dom.splitTree(splitRoot, rng.getStartPoint());
+          var blockquote = null;
 
-          var emptyAnchors = dom.listDescendant(splitRoot, dom.isEmptyAnchor);
-          emptyAnchors = emptyAnchors.concat(dom.listDescendant(nextPara, dom.isEmptyAnchor));
+          if (blockquoteBreakingLevel === 1) {
+            blockquote = dom.ancestor(splitRoot, dom.isBlockquote);
+          } else if (blockquoteBreakingLevel === 2) {
+            blockquote = dom.lastAncestor(splitRoot, dom.isBlockquote);
+          }
 
-          $.each(emptyAnchors, function (idx, anchor) {
-            dom.remove(anchor);
-          });
+          // We're inside a blockquote and options ask us to break it
+          if (blockquote) {
+            nextPara = $(dom.emptyPara)[0];
 
-          // replace empty heading or pre with P tag
-          if ((dom.isHeading(nextPara) || dom.isPre(nextPara)) && dom.isEmpty(nextPara)) {
-            nextPara = dom.replace(nextPara, 'p');
+            // If the split is right before a <br>, remove it so that there's no "empty line"
+            // after the split in the new blockquote created
+            if (dom.isRightEdgePoint(rng.getStartPoint()) && dom.isBR(rng.sc.nextSibling)) {
+              $(rng.sc.nextSibling).remove();
+            }
+
+            var split = dom.splitTree(blockquote, rng.getStartPoint(), { isDiscardEmptySplits: true });
+
+            if (split) {
+              split.parentNode.insertBefore(nextPara, split);
+            } else {
+              dom.insertAfter(nextPara, blockquote); // There's no split if we were at the end of the blockquote
+            }
+          // not a blockquote, just insert the paragraph
+          } else {
+            nextPara = dom.splitTree(splitRoot, rng.getStartPoint());
+
+            var emptyAnchors = dom.listDescendant(splitRoot, dom.isEmptyAnchor);
+            emptyAnchors = emptyAnchors.concat(dom.listDescendant(nextPara, dom.isEmptyAnchor));
+
+            $.each(emptyAnchors, function (idx, anchor) {
+              dom.remove(anchor);
+            });
+
+            // replace empty heading or pre with P tag
+            if ((dom.isHeading(nextPara) || dom.isPre(nextPara)) && dom.isEmpty(nextPara)) {
+              nextPara = dom.replace(nextPara, 'p');
+            }
           }
         }
       // no paragraph: insert empty paragraph
@@ -3788,7 +3831,7 @@
 
     var style = new Style();
     var table = new Table();
-    var typing = new Typing();
+    var typing = new Typing(context);
     var bullet = new Bullet();
     var history = new History($editable);
 
@@ -6896,6 +6939,7 @@
       shortcuts: true,
       textareaAutoSync: true,
       direction: null,
+      blockquoteBreakingLevel: 2,
 
       styleTags: ['p', 'blockquote', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
 
